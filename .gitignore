@@ -1,5 +1,7 @@
 client_secret.json
 fb.json
 
+*.pyc
+
 *.JPG
 *.jpg
