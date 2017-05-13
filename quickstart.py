@@ -1,7 +1,10 @@
 from __future__ import print_function
 import httplib2
+import json
 import os
 import io
+
+from fbrecog import recognize
 
 from apiclient import discovery
 from apiclient import errors
@@ -17,10 +20,24 @@ except ImportError:
     flags = None
 
 # If modifying these scopes, delete your previously saved credentials
-# at ~/.credentials/drive-python-quickstart.json
+# at ~/.credentials/fb-drive.json
 SCOPES = 'https://www.googleapis.com/auth/drive.readonly'
 CLIENT_SECRET_FILE = 'client_secret.json'
+FB_CONFIG_FILE = 'fb.json'
 APPLICATION_NAME = 'Drive and FB Image'
+DATA_FILE = 'data.json'
+
+with open(FB_CONFIG_FILE) as fb_config_file:
+    config = json.load(fb_config_file)
+    access_token = config['access_token']
+    cookie = config['cookie']
+    fb_dtsg = config['fb_dtsg']
+
+with open(DATA_FILE, 'a+') as data_file:
+    try:
+        classify_data = json.load(data_file)
+    except ValueError:
+        classify_data = {}
 
 
 def get_credentials():
@@ -36,8 +53,7 @@ def get_credentials():
     credential_dir = os.path.join(home_dir, '.credentials')
     if not os.path.exists(credential_dir):
         os.makedirs(credential_dir)
-    credential_path = os.path.join(credential_dir,
-                                   'drive-python-quickstart.json')
+    credential_path = os.path.join(credential_dir, 'fb-drive.json')
 
     store = Storage(credential_path)
     credentials = store.get()
@@ -62,7 +78,35 @@ def download_file(drive_service, file_id, filename):
         print ("Download %d%%." % int(status.progress() * 100))
 
 
-def something(drive_service):
+def recognize_pic(pic_name):
+    result = recognize(pic_name, access_token, cookie, fb_dtsg)
+    print (result)
+    return result
+
+
+def classify_pic(service, pic_id, pic_name):
+    if pic_id not in classify_data:
+        download_file(service, pic_id, pic_name)
+        classify_data[pic_id] = recognize_pic(pic_name)
+    else:
+        print ('%s already classified' % pic_name)
+
+
+def classify_pics(service, picTuples):
+    """
+    """
+    try:
+        for picTuple in picTuples:
+            classify_pic(service, picTuple[0], picTuple[1])
+    finally:
+        with open(DATA_FILE, 'w') as data_file:
+            json.dump(classify_data, data_file)
+
+
+def retrieve_pics(drive_service):
+    """
+    """
+    picTuples = []
     page_token = None
     while True:
         response = drive_service.files().list(q="mimeType='image/jpeg'",
@@ -71,13 +115,16 @@ def something(drive_service):
                                               pageToken=page_token).execute()
 
         for file in response.get('files', []):
-            download_file(drive_service, file.get('id'), file.get('name'))
-            return
-            # print ('Found file: %s (%s)' % (file.get('name'), file.get('id')))
+            if file.get('id') not in classify_data:
+                picTuples.append((file.get('id'), file.get('name')))
+                # print ('Found file: %s (%s)' % (file.get('name'), file.get('id')))
 
         page_token = response.get('nextPageToken', None)
         if page_token is None:
             break
+
+    print ('Found %s pictures' % len(picTuples))
+    return picTuples
 
 
 def main():
@@ -90,7 +137,9 @@ def main():
     http = credentials.authorize(httplib2.Http())
     service = discovery.build('drive', 'v3', http=http)
 
-    something(service)
+    picTuples = retrieve_pics(service)
+    classify_pics(service, picTuples)
+
 
 if __name__ == '__main__':
     main()
