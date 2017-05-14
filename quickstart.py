@@ -1,10 +1,11 @@
 from __future__ import print_function
-from threading import Thread
 import httplib2
 import json
 import os
 import io
 
+from Queue import Queue
+from threading import Thread
 from fbrecog import recognize
 
 from apiclient import discovery
@@ -89,38 +90,44 @@ def recognize_pic(pic_name):
     return result
 
 
-def classify_pic(pic_id, pic_name):
+def classify_pic(pic_id, pic_name, picQ):
     if pic_id not in classify_data:
         is_success = download_file(pic_id, pic_name)
         if is_success:
             classify_data[pic_id] = recognize_pic(pic_name)
+        else:
+            picQ.put((pic_id, pic_name))
         # delete picture from current dir
     else:
         print ('%s already classified' % pic_name)
 
 
-def classify_pics(picTuples):
-    try:
-        print ("Starting threads...")
-        threads = []
-        for picTuple in picTuples[:MAX_THREADS]:
-            t = Thread(target=classify_pic,
-                       args=(picTuple[0], picTuple[1]))
-            threads.append(t)
-            t.start()
+def classify_pics(picQ):
+    while not picQ.empty():
+        try:
+            print ("Starting threads...")
+            threads = []
+            for i in range(MAX_THREADS):
+                if not picQ.empty():
+                    picTuple = picQ.get()
+                    t = Thread(target=classify_pic,
+                               args=(picTuple[0], picTuple[1], picQ))
+                    threads.append(t)
+                    t.start()
 
-        for t in threads:
-            t.join()
+            for t in threads:
+                t.join()
 
-    finally:
-        with open(DATA_FILE, 'w') as data_file:
-            print ("Rewriting %s with %s entries" %
-                   (DATA_FILE, len(classify_data)))
-            json.dump(classify_data, data_file)
+        finally:
+            with open(DATA_FILE, 'w') as data_file:
+                print ("Rewriting %s with %s entries" %
+                       (DATA_FILE, len(classify_data)))
+                print (picQ.qsize())
+                json.dump(classify_data, data_file)
 
 
 def retrieve_pics(drive_service):
-    picTuples = []
+    picQ = Queue()
     page_token = None
     while True:
         response = drive_service.files().list(q="mimeType='image/jpeg'",
@@ -130,14 +137,14 @@ def retrieve_pics(drive_service):
 
         for file in response.get('files', []):
             if file.get('id') not in classify_data:
-                picTuples.append((file.get('id'), file.get('name')))
+                picQ.put((file.get('id'), file.get('name')))
 
         page_token = response.get('nextPageToken', None)
         if page_token is None:
             break
 
-    print ('Found %s pictures' % len(picTuples))
-    return picTuples
+    print ('Found %s pictures' % picQ.qsize())
+    return picQ
 
 
 def getHttp():
@@ -154,8 +161,8 @@ def main():
     """
     service = discovery.build('drive', 'v3', http=getHttp())
 
-    picTuples = retrieve_pics(service)
-    classify_pics(picTuples)
+    picQ = retrieve_pics(service)
+    classify_pics(picQ)
 
 
 if __name__ == '__main__':
