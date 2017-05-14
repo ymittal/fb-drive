@@ -23,16 +23,25 @@ CLIENT_SECRET_FILE = 'client_secret.json'
 FB_CONFIG_FILE = 'fb.json'
 DATA_FILE = 'data.json'
 
-MAX_THREADS = 16
+MAX_THREADS = 12
 
+try:
+    import argparse
+    flags = argparse.ArgumentParser(parents=[tools.argparser]).parse_args()
+except ImportError:
+    flags = None
+
+# gets all config details needed to use fbrecog.recognize
 with open(FB_CONFIG_FILE) as fb_config_file:
     config = json.load(fb_config_file)
     access_token = config['access_token']
     cookie = config['cookie']
     fb_dtsg = config['fb_dtsg']
 
+# creates file if does not exist already
 with open(DATA_FILE, 'a+') as data_file:
     try:
+         # load already classified data if file exists
         classify_data = json.load(data_file)
     except ValueError:
         classify_data = {}
@@ -67,6 +76,13 @@ def get_credentials():
 
 
 def download_file(file_id, filename):
+    """Attempts to download file with given file_id
+
+    :param file_id      file id
+    :param filename     file name
+    :return boolean denoting whether file was downloaded successfully
+    """
+    # httplib2 library is not thread-safe, need a new http for each thread
     drive_service = discovery.build('drive', 'v3', http=getHttp())
     request = drive_service.files().get_media(fileId=file_id)
 
@@ -84,28 +100,47 @@ def download_file(file_id, filename):
     return True
 
 
-def recognize_pic(pic_name):
-    result = recognize(pic_name, access_token, cookie, fb_dtsg)
+def recognize_pic(path):
+    """Uses recognize function to determine which friends are in the
+    picture
+
+    :param path         image path
+    :return a list of your friends' names recognized in the pic
+    """
+    result = recognize(path, access_token, cookie, fb_dtsg)
     print (result)
     return result
 
 
 def classify_pic(pic_id, pic_name, picQ):
+    """Classifies pic by first downloading the pic and then using FB
+    Face Recognition to figure who's in the pic
+
+    :param pic_id       pic id
+    :param pic_name     pic title
+    :param picQ         a queue of pics yet to be classified
+    """
     if pic_id not in classify_data:
         is_success = download_file(pic_id, pic_name)
         if is_success:
             classify_data[pic_id] = recognize_pic(pic_name)
         else:
+            # add pic to the queue on unsuccessful download
             picQ.put((pic_id, pic_name))
-        # delete picture from current dir
+        os.remove(pic_name)  # delete pic from local directory
     else:
         print ('%s already classified' % pic_name)
 
 
 def classify_pics(picQ):
+    """Loops through all pics to be classified in groups of threads,
+    writing data for "recognized" pics to DATA_FILE
+
+    :param picQ         a queue of pics yet to be classified
+    """
     while not picQ.empty():
         try:
-            print ("Starting threads...")
+            print ("Starting a batch of threads...")
             threads = []
             for i in range(MAX_THREADS):
                 if not picQ.empty():
@@ -119,14 +154,21 @@ def classify_pics(picQ):
                 t.join()
 
         finally:
+            # write to DATA_FILE even when process is interrupted
             with open(DATA_FILE, 'w') as data_file:
                 print ("Rewriting %s with %s entries" %
                        (DATA_FILE, len(classify_data)))
-                print (picQ.qsize())
                 json.dump(classify_data, data_file)
 
 
 def retrieve_pics(drive_service):
+    """Fetches a list of images in the Drive of authenticated user and
+    creates a queue of tuples of format (image_id, image_name) for images yet
+    to be "classified"
+
+    :param drive_service    Google Drive API service
+    :return a queue of tuples of format (image_id, image_name)
+    """
     picQ = Queue()
     page_token = None
     while True:
@@ -143,21 +185,20 @@ def retrieve_pics(drive_service):
         if page_token is None:
             break
 
-    print ('Found %s pictures' % picQ.qsize())
+    print ('Found %s pictures' % picQ.qsize())  # prints no. of new pics found
     return picQ
 
 
 def getHttp():
+    """Returns a new http client using user auth details"""
     credentials = get_credentials()
     http = credentials.authorize(httplib2.Http())
     return http
 
 
 def main():
-    """Shows basic usage of the Google Drive API.
-
-    Creates a Google Drive API service object and outputs the names and IDs
-    for up to 10 files.
+    """Retrieves all image files from Google Drive and attempts to 
+    classify all of them, storing data after regular intervals
     """
     service = discovery.build('drive', 'v3', http=getHttp())
 
