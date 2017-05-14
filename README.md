@@ -1,7 +1,7 @@
 # Using FB Face Recognition on Google Drive Pictures
 How many times have you had to go through your albums to find pics of (or with) a specific friend? Do you remember those nights when you wanted to put together a quick collage before a friend's birthday but did not have the motivation to sort through your countless pics?
 
-Same! I created this project to solve this real milleniial problem. Please note that running the script can take considerable amount of time for a large collection of pictures. However, you do not have to wait until all pics have been "classified." Interrupt the program (typically by **Ctrl + C**) whenever you wish.
+Well, I created this project to solve this real milleniial problem. Please note that running the script can take considerable amount of time for a large collection of pictures. However, you do not have to wait until all pics have been "classified." Interrupt the program (typically by **Ctrl + C**) whenever you wish.
 
 ## Setup
 Following are the steps needed to run the app:
