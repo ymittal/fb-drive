@@ -23,7 +23,7 @@ CLIENT_SECRET_FILE = 'client_secret.json'
 FB_CONFIG_FILE = 'fb.json'
 DATA_FILE = 'data.json'
 
-MAX_THREADS = 12
+MAX_THREADS = 8
 
 try:
     import argparse
@@ -105,11 +105,17 @@ def recognize_pic(path):
     picture
 
     :param path         image path
-    :return a list of your friends' names recognized in the pic
+    :return a dict containing filename and friends identified in the pic
     """
-    result = recognize(path, access_token, cookie, fb_dtsg)
-    print (result)
-    return result
+    results = recognize(path, access_token, cookie, fb_dtsg)
+
+    names = [str(result['name']) for result in results]
+    print ('%s contains %s' % (path, names))
+
+    return {
+        "filename": path,
+        "friends": names
+    }
 
 
 def classify_pic(pic_id, pic_name, picQ):
