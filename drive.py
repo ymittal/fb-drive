@@ -83,7 +83,7 @@ def download_file(file_id, filename):
     :return boolean denoting whether file was downloaded successfully
     """
     # httplib2 library is not thread-safe, need a new http for each thread
-    drive_service = discovery.build('drive', 'v3', http=getHttp())
+    drive_service = discovery.build('drive', 'v3', http=get_http())
     request = drive_service.files().get_media(fileId=file_id)
 
     fh = io.FileIO(filename, 'wb')
@@ -118,13 +118,13 @@ def recognize_pic(path):
     }
 
 
-def classify_pic(pic_id, pic_name, picQ):
+def classify_pic(pic_id, pic_name, pic_q):
     """Classifies pic by first downloading the pic and then using FB
     Face Recognition to figure who's in the pic
 
     :param pic_id       pic id
     :param pic_name     pic title
-    :param picQ         a queue of pics yet to be classified
+    :param pic_q        a queue of pics yet to be classified
     """
     if pic_id not in classify_data:
         is_success = download_file(pic_id, pic_name)
@@ -132,27 +132,27 @@ def classify_pic(pic_id, pic_name, picQ):
             classify_data[pic_id] = recognize_pic(pic_name)
         else:
             # add pic to the queue on unsuccessful download
-            picQ.put((pic_id, pic_name))
+            pic_q.put((pic_id, pic_name))
         os.remove(pic_name)  # delete pic from local directory
     else:
         print ('%s already classified' % pic_name)
 
 
-def classify_pics(picQ):
+def classify_pics(pic_q):
     """Loops through all pics to be classified in groups of threads,
     writing data for "recognized" pics to DATA_FILE
 
-    :param picQ         a queue of pics yet to be classified
+    :param pic_q        a queue of pics yet to be classified
     """
-    while not picQ.empty():
+    while not pic_q.empty():
         try:
             print ("Starting a batch of threads...")
             threads = []
             for i in range(MAX_THREADS):
-                if not picQ.empty():
-                    picTuple = picQ.get()
+                if not pic_q.empty():
+                    picTuple = pic_q.get()
                     t = Thread(target=classify_pic,
-                               args=(picTuple[0], picTuple[1], picQ))
+                               args=(picTuple[0], picTuple[1], pic_q))
                     threads.append(t)
                     t.start()
 
@@ -175,7 +175,7 @@ def retrieve_pics(drive_service):
     :param drive_service    Google Drive API service
     :return a queue of tuples of format (image_id, image_name)
     """
-    picQ = Queue()
+    pic_q = Queue()
     page_token = None
     while True:
         response = drive_service.files().list(q="mimeType='image/jpeg'",
@@ -185,17 +185,17 @@ def retrieve_pics(drive_service):
 
         for file in response.get('files', []):
             if file.get('id') not in classify_data:
-                picQ.put((file.get('id'), file.get('name')))
+                pic_q.put((file.get('id'), file.get('name')))
 
         page_token = response.get('nextPageToken', None)
         if page_token is None:
             break
 
-    print ('Found %s pictures' % picQ.qsize())  # prints no. of new pics found
-    return picQ
+    print ('Found %s pictures' % pic_q.qsize())  # prints no. of new pics found
+    return pic_q
 
 
-def getHttp():
+def get_http():
     """Returns a new http client using user auth details"""
     credentials = get_credentials()
     http = credentials.authorize(httplib2.Http())
@@ -206,10 +206,10 @@ def main():
     """Retrieves all image files from Google Drive and attempts to 
     classify all of them, storing data after regular intervals
     """
-    service = discovery.build('drive', 'v3', http=getHttp())
+    service = discovery.build('drive', 'v3', http=get_http())
 
-    picQ = retrieve_pics(service)
-    classify_pics(picQ)
+    pic_q = retrieve_pics(service)
+    classify_pics(pic_q)
 
 
 if __name__ == '__main__':
